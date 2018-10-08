@@ -3,7 +3,6 @@ package advance
 import (
 	"bytes"
 	"io"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,17 +10,17 @@ import (
 )
 
 type Advance struct {
-	dispLock sync.Mutex
-	w        io.Writer
-	buf      bytes.Buffer
+	w   io.Writer
+	buf bytes.Buffer
 
 	active bool
 
-	state *AdvanceState
+	state     AdvanceState
+	stateLock *tryMutex
 
 	// Sloppy counters
-	slopLock                sync.RWMutex
 	nextProgress, nextTotal int64
+	refreshInterval         time.Duration
 
 	components []Component
 	cIndexes   []int
@@ -33,11 +32,13 @@ func New(w io.Writer, refreshInterval time.Duration, components ...Component) *A
 	}
 
 	a := Advance{
-		w:          w,
-		components: components,
-		cIndexes:   make([]int, len(components)),
-		state:      newAdvanceState(refreshInterval),
+		w:               w,
+		components:      components,
+		cIndexes:        make([]int, len(components)),
+		stateLock:       newTryMuex(),
+		refreshInterval: refreshInterval,
 	}
+	a.state.reset(refreshInterval)
 	a.buf.WriteString(escapes.EraseLine + escapes.CursorLeft)
 	a.cIndexes[0] = a.buf.Len()
 	return &a
@@ -51,7 +52,7 @@ func (a *Advance) print() (n int, err error) {
 	a.buf.Truncate(a.cIndexes[0])
 	for i, c := range a.components {
 		a.cIndexes[i] = a.buf.Len()
-		c.Print(&a.buf, a.state)
+		c.Print(&a.buf, &a.state)
 		if i != len(a.components)-1 {
 			a.buf.WriteRune(' ')
 		}
@@ -61,28 +62,41 @@ func (a *Advance) print() (n int, err error) {
 }
 
 func (a *Advance) requestUpdate(force bool) bool {
-	if a.state.requestUpdate(a.nextProgress, a.nextTotal, force) {
-		a.dispLock.Lock()
-		defer a.dispLock.Unlock()
-
-		a.print()
-		return true
+	now := time.Now()
+	ready := false
+	if force {
+		a.stateLock.Lock()
+		defer a.stateLock.Unlock()
+		ready = true
+	} else {
+		if a.stateLock.TryLock() {
+			defer a.stateLock.Unlock()
+			ready = (now.After(a.state.NextUpdate) || now.Equal(a.state.NextUpdate))
+		}
 	}
-	return false
+
+	if ready {
+		nextProgress := atomic.LoadInt64(&a.nextProgress)
+		nextTotal := atomic.LoadInt64(&a.nextTotal)
+		a.state.update(nextProgress, nextTotal, a.refreshInterval)
+		a.print()
+	}
+
+	return ready
 }
 
 func (a *Advance) Reset() {
-	a.slopLock.Lock()
-	defer a.slopLock.Unlock()
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
 
-	a.state.reset()
-	a.nextProgress = 0
-	a.nextTotal = 0
+	a.state.reset(a.refreshInterval)
+	atomic.StoreInt64(&a.nextProgress, 0)
+	atomic.StoreInt64(&a.nextTotal, 0)
 }
 
 func (a *Advance) Show() {
-	a.dispLock.Lock()
-	defer a.dispLock.Unlock()
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
 
 	if !a.active {
 		a.active = true
@@ -91,8 +105,8 @@ func (a *Advance) Show() {
 }
 
 func (a *Advance) Hide() {
-	a.dispLock.Lock()
-	defer a.dispLock.Unlock()
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
 
 	if a.active {
 		a.active = false
@@ -101,8 +115,8 @@ func (a *Advance) Hide() {
 }
 
 func (a *Advance) Write(p []byte) (n int, err error) {
-	a.dispLock.Lock()
-	defer a.dispLock.Unlock()
+	a.stateLock.Lock()
+	defer a.stateLock.Unlock()
 
 	if a.active {
 		a.clear()
@@ -127,9 +141,6 @@ func (a *Advance) Set(p int64) {
 		panic("Progress must be positive")
 	}
 
-	a.slopLock.RLock()
-	defer a.slopLock.RUnlock()
-
 	atomic.StoreInt64(&a.nextProgress, p)
 	a.requestUpdate(false)
 }
@@ -138,9 +149,6 @@ func (a *Advance) Add(p int64) {
 	if p < 0 {
 		panic("Progress must be positive")
 	}
-
-	a.slopLock.RLock()
-	defer a.slopLock.RUnlock()
 
 	atomic.AddInt64(&a.nextProgress, p)
 	a.requestUpdate(false)
@@ -151,9 +159,6 @@ func (a *Advance) SetTotal(total int64) {
 		panic("Total must be positive")
 	}
 
-	a.slopLock.RLock()
-	defer a.slopLock.RUnlock()
-
 	atomic.StoreInt64(&a.nextTotal, total)
 	a.requestUpdate(false)
 }
@@ -162,9 +167,6 @@ func (a *Advance) AddTotal(total int64) {
 	if total < 0 {
 		panic("Total must be positive")
 	}
-
-	a.slopLock.RLock()
-	defer a.slopLock.RUnlock()
 
 	atomic.AddInt64(&a.nextTotal, total)
 	a.requestUpdate(false)
