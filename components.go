@@ -75,7 +75,7 @@ func (ct *CycleText) Store(text string) *list.Element {
 
 func (ct *CycleText) Delete(textEl *list.Element) {
 	ct.Lock()
-	defer ct.Lock()
+	defer ct.Unlock()
 
 	ct.Texts.Remove(textEl)
 }

@@ -66,6 +66,7 @@ func (a *Advance) print() (n int, err error) {
 func (a *Advance) requestUpdate(force bool) bool {
 	a.activeLock.RLock()
 	defer a.activeLock.RUnlock()
+
 	if !a.active {
 		return false
 	}
