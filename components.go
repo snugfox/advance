@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/snugfox/advance/bytesize"
@@ -57,6 +58,8 @@ func (t *Text) Print(buf *bytes.Buffer, as *AdvanceState) {
 }
 
 type CycleText struct {
+	sync.Mutex
+
 	currText  *list.Element
 	Texts     list.List
 	Speed     time.Duration
@@ -64,14 +67,23 @@ type CycleText struct {
 }
 
 func (ct *CycleText) Store(text string) *list.Element {
+	ct.Lock()
+	defer ct.Unlock()
+
 	return ct.Texts.PushBack(text)
 }
 
 func (ct *CycleText) Delete(textEl *list.Element) {
+	ct.Lock()
+	defer ct.Lock()
+
 	ct.Texts.Remove(textEl)
 }
 
 func (ct *CycleText) Print(buf *bytes.Buffer, as *AdvanceState) {
+	ct.Lock()
+	defer ct.Unlock()
+
 	now := time.Now()
 	if ct.currText == nil {
 		ct.currText = ct.Texts.Front()
