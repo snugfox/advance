@@ -87,9 +87,9 @@ func (a *Advance) requestUpdate(force bool) bool {
 
 func (a *Advance) Reset() {
 	a.stateLock.Lock()
-	defer a.stateLock.Unlock()
-
 	a.state.reset(a.refreshInterval)
+	a.stateLock.Unlock()
+
 	atomic.StoreInt64(&a.nextProgress, 0)
 	atomic.StoreInt64(&a.nextTotal, 0)
 }
@@ -115,8 +115,6 @@ func (a *Advance) Hide() {
 }
 
 func (a *Advance) Write(p []byte) (n int, err error) {
-	a.stateLock.Lock()
-	defer a.stateLock.Unlock()
 
 	if a.active {
 		a.clear()
@@ -125,14 +123,15 @@ func (a *Advance) Write(p []byte) (n int, err error) {
 			return
 		}
 		if p[len(p)-1] == '\n' {
+			a.stateLock.Lock()
 			_, err = a.print()
+			a.stateLock.Unlock()
 			if err != nil {
 				return
 			}
 		}
 		return
 	}
-
 	return a.w.Write(p)
 }
 
