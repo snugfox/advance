@@ -3,6 +3,9 @@ package advance
 import (
 	"bytes"
 	"encoding/json"
+	"io/ioutil"
+	"runtime"
+	"sync"
 	"testing"
 
 	escapes "github.com/snugfox/ansi-escapes"
@@ -76,5 +79,26 @@ func TestAdvance(t *testing.T) {
 				// TODO: Validate other AdvanceState fields
 			}
 		})
+	}
+}
+
+func TestAdvanceParallel(t *testing.T) {
+	a := New(ioutil.Discard, 0, &Debug{})
+	a.Show()
+	a.Reset()
+	a.SetTotal(100 * int64(runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go func() {
+			for i := int64(0); i < 100; i++ {
+				a.Add(1)
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	if a.state.Progress != a.state.Total {
+		t.Fatalf("Incorrect progress, want: %d, got: %d", a.state.Total, a.state.Progress)
 	}
 }
