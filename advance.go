@@ -3,6 +3,7 @@ package advance
 import (
 	"bytes"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,7 +14,8 @@ type Advance struct {
 	w   io.Writer
 	buf bytes.Buffer
 
-	active bool
+	active     bool
+	activeLock sync.RWMutex
 
 	state     AdvanceState
 	stateLock *tryMutex
@@ -62,6 +64,12 @@ func (a *Advance) print() (n int, err error) {
 }
 
 func (a *Advance) requestUpdate(force bool) bool {
+	a.activeLock.RLock()
+	defer a.activeLock.RUnlock()
+	if !a.active {
+		return false
+	}
+
 	now := time.Now()
 	ready := false
 	if force {
@@ -95,18 +103,21 @@ func (a *Advance) Reset() {
 }
 
 func (a *Advance) Show() {
-	a.stateLock.Lock()
-	defer a.stateLock.Unlock()
+	a.activeLock.Lock()
+	defer a.activeLock.Unlock()
 
 	if !a.active {
+		a.stateLock.Lock()
+		defer a.stateLock.Unlock()
+
 		a.active = true
 		a.print()
 	}
 }
 
 func (a *Advance) Hide() {
-	a.stateLock.Lock()
-	defer a.stateLock.Unlock()
+	a.activeLock.Lock()
+	defer a.activeLock.Unlock()
 
 	if a.active {
 		a.active = false
@@ -115,6 +126,8 @@ func (a *Advance) Hide() {
 }
 
 func (a *Advance) Write(p []byte) (n int, err error) {
+	a.activeLock.RLock()
+	defer a.activeLock.RUnlock()
 
 	if a.active {
 		a.clear()
