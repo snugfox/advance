@@ -11,11 +11,10 @@ import (
 )
 
 type Advance struct {
-	w   io.Writer
-	buf bytes.Buffer
-
-	active     bool
-	activeLock sync.RWMutex
+	w        io.Writer
+	buf      bytes.Buffer
+	active   bool
+	dispLock sync.Mutex
 
 	state     AdvanceState
 	stateLock *tryMutex
@@ -64,8 +63,8 @@ func (a *Advance) print() (n int, err error) {
 }
 
 func (a *Advance) requestUpdate(force bool) bool {
-	a.activeLock.RLock()
-	defer a.activeLock.RUnlock()
+	a.dispLock.Lock()
+	defer a.dispLock.Unlock()
 
 	if !a.active {
 		return false
@@ -104,8 +103,8 @@ func (a *Advance) Reset() {
 }
 
 func (a *Advance) Show() {
-	a.activeLock.Lock()
-	defer a.activeLock.Unlock()
+	a.dispLock.Lock()
+	defer a.dispLock.Unlock()
 
 	if !a.active {
 		a.stateLock.Lock()
@@ -117,8 +116,8 @@ func (a *Advance) Show() {
 }
 
 func (a *Advance) Hide() {
-	a.activeLock.Lock()
-	defer a.activeLock.Unlock()
+	a.dispLock.Lock()
+	defer a.dispLock.Unlock()
 
 	if a.active {
 		a.active = false
@@ -127,8 +126,8 @@ func (a *Advance) Hide() {
 }
 
 func (a *Advance) Write(p []byte) (n int, err error) {
-	a.activeLock.RLock()
-	defer a.activeLock.RUnlock()
+	a.dispLock.Lock()
+	defer a.dispLock.Unlock()
 
 	if a.active {
 		a.clear()
