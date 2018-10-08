@@ -4,7 +4,7 @@ type tryMutex struct {
 	sema chan struct{}
 }
 
-func newTryMuex() *tryMutex {
+func newTryMutex() *tryMutex {
 	return &tryMutex{make(chan struct{}, 1)}
 }
 

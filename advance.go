@@ -37,7 +37,7 @@ func New(w io.Writer, refreshInterval time.Duration, components ...Component) *A
 		w:               w,
 		components:      components,
 		cIndexes:        make([]int, len(components)),
-		stateLock:       newTryMuex(),
+		stateLock:       newTryMutex(),
 		refreshInterval: refreshInterval,
 	}
 	a.state.reset(refreshInterval)
